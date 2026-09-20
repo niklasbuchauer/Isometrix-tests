@@ -4,9 +4,9 @@ import pygame
 from pytmx.util_pygame import load_pygame
 
 pygame.init()
-SCREEN_WIDTH, SCREEN_HEIGHT = 1000, 800
+SCREEN_WIDTH, SCREEN_HEIGHT = 800, 600
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Isometric Player - Idle & Direction Fix")
+pygame.display.set_caption("Isometric Player - Scalable Size")
 clock = pygame.time.Clock()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -20,13 +20,16 @@ except Exception as e:
 
 
 class Player:
-    def __init__(self, start_x, start_y, use_hair=True):
+    def __init__(self, start_x, start_y, use_hair=True, scale_factor=2.5):
         self.grid_x = float(start_x)
         self.grid_y = float(start_y)
-        self.speed = 0.05
+        self.speed = 0.04
 
         self.frame_width = 32
         self.frame_height = 32
+
+        # Variable zur einfachen Skalierung der Spielfigur
+        self.scale_factor = scale_factor
 
         sheet_path = os.path.join(
             BASE_DIR, "Chibi-character-template_skin0_by_AxulArt.png"
@@ -55,12 +58,12 @@ class Player:
             actual_row = self.row_offset + dir_index
             dir_walk_frames = []
 
-            # 1. Lade die Geh-Animation (Spalten 3 bis 8)
+            # Lade Geh-Animation (Spalten 3 bis 8)
             for col in range(3, 9):
                 frame = self.get_scaled_frame(sheet, col, actual_row)
                 dir_walk_frames.append(frame)
 
-            # 2. Idle-Sprite: Verwende den 5. Sprite im Sheet (Spalte 5, d.h. Index 4)
+            # Idle-Sprite: 5. Sprite im Sheet (Spalte 5, Index 4)
             standing_frame = self.get_scaled_frame(sheet, 4, actual_row)
             dir_idle_frames = [standing_frame]
 
@@ -77,10 +80,12 @@ class Player:
             self.frame_height,
         )
         sub_surface = sheet.subsurface(rect)
-        return pygame.transform.scale(
-            sub_surface,
-            (int(self.frame_width * 1.5), int(self.frame_height * 1.5)),
-        )
+
+        # Skaliert das Sprite basierend auf self.scale_factor
+        scaled_w = int(self.frame_width * self.scale_factor)
+        scaled_h = int(self.frame_height * self.scale_factor)
+
+        return pygame.transform.scale(sub_surface, (scaled_w, scaled_h))
 
     def update(self, dt, is_moving, direction):
         if direction is not None:
@@ -135,7 +140,8 @@ def draw_isometric_map(surface, tmx_data):
                     surface.blit(tile, (screen_x, screen_y))
 
 
-player = Player(start_x=5, start_y=5, use_hair=True)
+# Ändere scale_factor hier, um die Größe des Charakters anzupassen:
+player = Player(start_x=5, start_y=5, use_hair=True, scale_factor=1.15)
 
 running = True
 while running:
@@ -149,11 +155,6 @@ while running:
     moving = False
     new_dir = None
 
-    # Tasten- und Richtungs-Mapping:
-    # 0 = Runter (Sünchen)
-    # 1 = Rechts (D) - Tauscht mit A für korrekte Ausrichtung
-    # 2 = Links (A)
-    # 3 = Hoch (Norden)
     if keys[pygame.K_s] or keys[pygame.K_DOWN]:
         player.grid_x += player.speed
         player.grid_y += player.speed
@@ -163,12 +164,12 @@ while running:
         player.grid_x -= player.speed
         player.grid_y += player.speed
         moving = True
-        new_dir = 2  # Nutzt jetzt Zeile 2 für Links
+        new_dir = 2
     elif keys[pygame.K_d] or keys[pygame.K_RIGHT]:
         player.grid_x += player.speed
         player.grid_y -= player.speed
         moving = True
-        new_dir = 1  # Nutzt jetzt Zeile 1 für Rechts
+        new_dir = 1
     elif keys[pygame.K_w] or keys[pygame.K_UP]:
         player.grid_x -= player.speed
         player.grid_y -= player.speed
