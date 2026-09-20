@@ -6,7 +6,7 @@ from pytmx.util_pygame import load_pygame
 pygame.init()
 SCREEN_WIDTH, SCREEN_HEIGHT = 800, 600
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Isometric Player - Layer Fixed")
+pygame.display.set_caption("Isometric Player - Custom Tile Property Water Collision")
 clock = pygame.time.Clock()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -20,25 +20,43 @@ except Exception as e:
 
 
 def is_wall(grid_x, grid_y, tmx_data):
+    """
+    Prüft, ob ein Feld blockiert ist.
+    Unterstützt sowohl Wände über Layer-Namen als auch Wasser/Kollisionen
+    auf DENSELBEN Layer über Tile Custom Properties (z.B. is_water = True).
+    """
     map_width = tmx_data.width
     map_height = tmx_data.height
 
+    # 1. Prüfen, ob der Spieler außerhalb der Map-Ränder ist
     if grid_x < 0 or grid_x >= map_width or grid_y < 0 or grid_y >= map_height:
         return True
 
     tile_x = int(grid_x)
     tile_y = int(grid_y)
 
+    blocked_keywords = ["wall", "wand", "wände"]
+
+    # 2. Prüfen aller sichtbaren Ebenen am Standort des Spielers
     for layer in tmx_data.visible_layers:
         if hasattr(layer, "data"):
             gid = layer.data[tile_y][tile_x]
             if gid != 0:
-                if layer.name.lower() in ["walls", "wand", "wände"]:
+                layer_name = layer.name.lower().strip()
+
+                # Blockade falls die Ebene selbst eine Wand-Ebene ist
+                if any(keyword in layer_name for keyword in blocked_keywords):
                     return True
 
+                # Blockade prüfen über Tile Custom Properties auf DENSELBEN Ebene
                 props = tmx_data.get_tile_properties_by_gid(gid)
-                if props and props.get("collidable") is True:
-                    return True
+                if props:
+                    if (
+                        props.get("is_water") is True
+                        or props.get("collidable") is True
+                        or props.get("water") is True
+                    ):
+                        return True
 
     return False
 
@@ -167,11 +185,11 @@ def grid_to_isometric(x, y, tile_width, tile_height):
 
 
 def draw_scene_sorted(surface, tmx_data, player):
-    # SCHRITT 1: Zeichne alle flachen Boden-Ebenen in Tiled-Reihenfolge
+    # SCHRITT 1: Zeichne alle Boden-Ebenen (Wasser und Boden liegen auf derselben Ebene)
     for layer in tmx_data.visible_layers:
         if hasattr(layer, "data"):
-            # Wand-Ebenen für Schritt 2 überspringen
-            if layer.name.lower() in ["walls", "wand", "wände"]:
+            # Wand-Ebenen überspringen, da diese erst in Schritt 2 kommen
+            if any(w in layer.name.lower() for w in ["walls", "wand", "wände"]):
                 continue
 
             for x, y, gid in layer:
@@ -182,33 +200,34 @@ def draw_scene_sorted(surface, tmx_data, player):
                     )
                     surface.blit(tile, (screen_x, screen_y))
 
-    # SCHRITT 2: Sammle nur vertikale Objekte (Wände & Spieler) zur Sortierung
+    # SCHRITT 2: Sortiere und zeichne vertikale Objekte (Wände und den Spieler) nach Tiefe
     sortable_objects = []
 
-    # 2a. Wand-Tiles sammeln
     for layer in tmx_data.visible_layers:
-        if hasattr(layer, "data") and layer.name.lower() in ["walls", "wand", "wände"]:
+        if hasattr(layer, "data") and any(
+            w in layer.name.lower() for w in ["walls", "wand", "wände"]
+        ):
             for x, y, gid in layer:
                 tile = tmx_data.get_tile_image_by_gid(gid)
                 if tile:
                     screen_x, screen_y = grid_to_isometric(
                         x, y, tmx_data.tilewidth, tmx_data.tileheight
                     )
-                    # Tiefe nach Raster-Koordinate (x + y)
                     depth = x + y
-                    sortable_objects.append(("tile", depth, tile, screen_x, screen_y))
+                    sortable_objects.append(
+                        ("tile", depth, tile, screen_x, screen_y)
+                    )
 
-    # 2b. Spieler hinzufügen
     player_screen_x, player_screen_y = grid_to_isometric(
         player.grid_x, player.grid_y, tmx_data.tilewidth, tmx_data.tileheight
     )
     player_depth = player.grid_x + player.grid_y
-    sortable_objects.append(("player", player_depth, player, player_screen_x, player_screen_y))
+    sortable_objects.append(
+        ("player", player_depth, player, player_screen_x, player_screen_y)
+    )
 
-    # 2c. Sortieren nach Tiefe
     sortable_objects.sort(key=lambda item: item[1])
 
-    # 2d. Wände und Spieler über dem Boden rendern
     for obj_type, depth, obj, sx, sy in sortable_objects:
         if obj_type == "tile":
             surface.blit(obj, (sx, sy))
