@@ -6,7 +6,7 @@ from pytmx.util_pygame import load_pygame
 pygame.init()
 SCREEN_WIDTH, SCREEN_HEIGHT = 800, 600
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Isometric Player Animation & Cutoff Fix")
+pygame.display.set_caption("Isometric Player - Exakte Raster-Korrektur")
 clock = pygame.time.Clock()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -18,79 +18,107 @@ except Exception as e:
     print(f"Fehler beim Laden der Map: {e}")
     sys.exit()
 
+
 class Player:
-    def __init__(self, start_x, start_y):
+    def __init__(self, start_x, start_y, use_hair=True):
         self.grid_x = float(start_x)
         self.grid_y = float(start_y)
         self.speed = 0.05
-        
-        # FIX FOR CUTOFF: Frame width changed from 16 to 32
-        self.frame_width = 32  
+
+        # Berechnete Pixel-Maße aus 384x256
+        self.frame_width = 32
         self.frame_height = 32
 
-        idle_path = os.path.join(BASE_DIR, "16x32 Idle-Sheet.png")
-        walk_path = os.path.join(BASE_DIR, "16x32 Walk-Sheet.png")
+        sheet_path = os.path.join(
+            BASE_DIR, "Chibi-character-template_skin0_by_AxulArt.png"
+        )
 
-        self.idle_frames = self.load_sheet(idle_path)
-        self.walk_frames = self.load_sheet(walk_path)
+        # 0 = Mit Haaren, 4 = Ohne Haare
+        self.row_offset = 0 if use_hair else 4
 
-        self.current_frames = self.idle_frames
+        self.direction = 0
+
+        self.idle_anims, self.walk_anims = self.load_all_animations(sheet_path)
+
         self.current_frame = 0
         self.animation_timer = 0
-        self.animation_speed = 120  # Milliseconds per frame
+        self.animation_speed = 120
         self.is_moving = False
 
-    def load_sheet(self, sheet_path):
+    def load_all_animations(self, sheet_path):
         if not os.path.exists(sheet_path):
-            fallback = pygame.Surface((64, 64), pygame.SRCALPHA)
-            pygame.draw.circle(fallback, (255, 0, 0), (16, 32), 12)
-            return [fallback]
+            print(f"Datei nicht gefunden: {sheet_path}")
+            sys.exit()
 
         sheet = pygame.image.load(sheet_path).convert_alpha()
-        frames = []
-        num_frames = sheet.get_width() // self.frame_width
+        idle_anims = {}
+        walk_anims = {}
 
-        for i in range(num_frames):
-            frame_rect = pygame.Rect(
-                i * self.frame_width, 0, self.frame_width, self.frame_height
-            )
-            frame_surface = sheet.subsurface(frame_rect)
+        for dir_index in range(4):
+            actual_row = self.row_offset + dir_index
+            dir_idle_frames = []
+            dir_walk_frames = []
 
-            # Scale 1.5x so it fits isometric tiles nicely
-            scaled_surface = pygame.transform.scale(
-                frame_surface, (int(self.frame_width * 1.5), int(self.frame_height * 1.5))
-            )
-            frames.append(scaled_surface)
+            # Idle-Frames (Spalten 0 bis 2)
+            for col in range(0, 3):
+                frame = self.get_scaled_frame(sheet, col, actual_row)
+                dir_idle_frames.append(frame)
 
-        return frames
+            # Walk-Frames (Spalten 3 bis 8)
+            for col in range(3, 9):
+                frame = self.get_scaled_frame(sheet, col, actual_row)
+                dir_walk_frames.append(frame)
 
-    def update(self, dt, is_moving):
-        """Switch between idle/walk animation sheets and animate frames."""
-        # Switch sheets when movement state changes
-        if is_moving and not self.is_moving:
-            self.current_frames = self.walk_frames
-            self.current_frame = 0
-        elif not is_moving and self.is_moving:
-            self.current_frames = self.idle_frames
+            idle_anims[dir_index] = dir_idle_frames
+            walk_anims[dir_index] = dir_walk_frames
+
+        return idle_anims, walk_anims
+
+    def get_scaled_frame(self, sheet, col, row):
+        rect = pygame.Rect(
+            col * self.frame_width,
+            row * self.frame_height,
+            self.frame_width,
+            self.frame_height,
+        )
+        sub_surface = sheet.subsurface(rect)
+        # 1.5x Skalierung für passende Größe auf den Kacheln
+        return pygame.transform.scale(
+            sub_surface,
+            (int(self.frame_width * 1.5), int(self.frame_height * 1.5)),
+        )
+
+    def update(self, dt, is_moving, direction):
+        if direction is not None:
+            self.direction = direction
+
+        if is_moving != self.is_moving:
             self.current_frame = 0
 
         self.is_moving = is_moving
 
-        # Cycle animation frames continuously while moving
-        if self.is_moving:
-            self.animation_timer += dt
-            if self.animation_timer >= self.animation_speed:
-                self.animation_timer = 0
-                self.current_frame = (self.current_frame + 1) % len(self.current_frames)
-        else:
-            # Freeze at frame 0 when standing still
-            self.current_frame = 0
+        anim_set = self.walk_anims if self.is_moving else self.idle_anims
+        frames = anim_set.get(self.direction, [])
+
+        if not frames:
+            return
+
+        self.animation_timer += dt
+        if self.animation_timer >= self.animation_speed:
+            self.animation_timer = 0
+            self.current_frame = (self.current_frame + 1) % len(frames)
 
     def draw(self, surface, screen_x, screen_y, tile_width):
-        current_image = self.current_frames[self.current_frame]
+        anim_set = self.walk_anims if self.is_moving else self.idle_anims
+        frames = anim_set.get(self.direction, [])
+
+        if not frames:
+            return
+
+        current_image = frames[self.current_frame % len(frames)]
 
         feet_x = screen_x + (tile_width // 2) - (current_image.get_width() // 2)
-        feet_y = screen_y - current_image.get_height() + 12
+        feet_y = screen_y - current_image.get_height() + 16
 
         surface.blit(current_image, (feet_x, feet_y))
 
@@ -113,7 +141,7 @@ def draw_isometric_map(surface, tmx_data):
                     surface.blit(tile, (screen_x, screen_y))
 
 
-player = Player(start_x=5, start_y=5)
+player = Player(start_x=5, start_y=5, use_hair=True)
 
 running = True
 while running:
@@ -125,27 +153,35 @@ while running:
 
     keys = pygame.key.get_pressed()
     moving = False
+    new_dir = None
 
-    # Movement controls (straight screen directions)
-    if keys[pygame.K_w] or keys[pygame.K_UP]:
-        player.grid_x -= player.speed
-        player.grid_y -= player.speed
-        moving = True
+    # Richtungszuordnungen:
+    # 0 = Süden (Runter)
+    # 1 = Westen (Links)
+    # 2 = Osten (Rechts)
+    # 3 = Norden (Hoch)
     if keys[pygame.K_s] or keys[pygame.K_DOWN]:
         player.grid_x += player.speed
         player.grid_y += player.speed
         moving = True
-    if keys[pygame.K_a] or keys[pygame.K_LEFT]:
+        new_dir = 0
+    elif keys[pygame.K_a] or keys[pygame.K_LEFT]:
         player.grid_x -= player.speed
         player.grid_y += player.speed
         moving = True
-    if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
+        new_dir = 1
+    elif keys[pygame.K_d] or keys[pygame.K_RIGHT]:
         player.grid_x += player.speed
         player.grid_y -= player.speed
         moving = True
+        new_dir = 2
+    elif keys[pygame.K_w] or keys[pygame.K_UP]:
+        player.grid_x -= player.speed
+        player.grid_y -= player.speed
+        moving = True
+        new_dir = 3
 
-    # Update animation state with delta time
-    player.update(dt, is_moving=moving)
+    player.update(dt, is_moving=moving, direction=new_dir)
 
     screen.fill((30, 30, 30))
 
