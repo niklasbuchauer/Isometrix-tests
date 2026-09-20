@@ -6,7 +6,7 @@ from pytmx.util_pygame import load_pygame
 pygame.init()
 SCREEN_WIDTH, SCREEN_HEIGHT = 800, 600
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Isometric Player - Scalable Size")
+pygame.display.set_caption("Isometric Player - Custom Scale & Speed")
 clock = pygame.time.Clock()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -19,16 +19,44 @@ except Exception as e:
     sys.exit()
 
 
+def is_wall(grid_x, grid_y, tmx_data):
+    map_width = tmx_data.width
+    map_height = tmx_data.height
+
+    if grid_x < 0 or grid_x >= map_width or grid_y < 0 or grid_y >= map_height:
+        return True
+
+    tile_x = int(grid_x)
+    tile_y = int(grid_y)
+
+    for layer in tmx_data.visible_layers:
+        if hasattr(layer, "data"):
+            gid = layer.data[tile_y][tile_x]
+            if gid != 0:
+                if layer.name.lower() in ["walls", "wand", "wände"]:
+                    return True
+                
+                props = tmx_data.get_tile_properties_by_gid(gid)
+                if props and props.get("collidable") is True:
+                    return True
+
+    return False
+
+
 class Player:
-    def __init__(self, start_x, start_y, use_hair=True, scale_factor=2.5):
+    def __init__(self, start_x, start_y, use_hair=True, scale_factor=1.15):
         self.grid_x = float(start_x)
         self.grid_y = float(start_y)
+        
+        # Angepasste Geschwindigkeit
         self.speed = 0.04
+
+        self.radius = 0.25
 
         self.frame_width = 32
         self.frame_height = 32
-
-        # Variable zur einfachen Skalierung der Spielfigur
+        
+        # Angepasster Skalierungsfaktor
         self.scale_factor = scale_factor
 
         sheet_path = os.path.join(
@@ -58,12 +86,10 @@ class Player:
             actual_row = self.row_offset + dir_index
             dir_walk_frames = []
 
-            # Lade Geh-Animation (Spalten 3 bis 8)
             for col in range(3, 9):
                 frame = self.get_scaled_frame(sheet, col, actual_row)
                 dir_walk_frames.append(frame)
 
-            # Idle-Sprite: 5. Sprite im Sheet (Spalte 5, Index 4)
             standing_frame = self.get_scaled_frame(sheet, 4, actual_row)
             dir_idle_frames = [standing_frame]
 
@@ -81,11 +107,19 @@ class Player:
         )
         sub_surface = sheet.subsurface(rect)
 
-        # Skaliert das Sprite basierend auf self.scale_factor
         scaled_w = int(self.frame_width * self.scale_factor)
         scaled_h = int(self.frame_height * self.scale_factor)
 
         return pygame.transform.scale(sub_surface, (scaled_w, scaled_h))
+
+    def move(self, dx, dy, tmx_data):
+        new_x = self.grid_x + dx
+        if not is_wall(new_x + (self.radius if dx > 0 else -self.radius), self.grid_y, tmx_data):
+            self.grid_x = new_x
+
+        new_y = self.grid_y + dy
+        if not is_wall(self.grid_x, new_y + (self.radius if dy > 0 else -self.radius), tmx_data):
+            self.grid_y = new_y
 
     def update(self, dt, is_moving, direction):
         if direction is not None:
@@ -140,7 +174,7 @@ def draw_isometric_map(surface, tmx_data):
                     surface.blit(tile, (screen_x, screen_y))
 
 
-# Ändere scale_factor hier, um die Größe des Charakters anzupassen:
+# Hier mit scale_factor=1.15
 player = Player(start_x=5, start_y=5, use_hair=True, scale_factor=1.15)
 
 running = True
@@ -154,27 +188,31 @@ while running:
     keys = pygame.key.get_pressed()
     moving = False
     new_dir = None
+    dx, dy = 0, 0
 
     if keys[pygame.K_s] or keys[pygame.K_DOWN]:
-        player.grid_x += player.speed
-        player.grid_y += player.speed
+        dx += player.speed
+        dy += player.speed
         moving = True
         new_dir = 0
     elif keys[pygame.K_a] or keys[pygame.K_LEFT]:
-        player.grid_x -= player.speed
-        player.grid_y += player.speed
+        dx -= player.speed
+        dy += player.speed
         moving = True
         new_dir = 2
     elif keys[pygame.K_d] or keys[pygame.K_RIGHT]:
-        player.grid_x += player.speed
-        player.grid_y -= player.speed
+        dx += player.speed
+        dy -= player.speed
         moving = True
         new_dir = 1
     elif keys[pygame.K_w] or keys[pygame.K_UP]:
-        player.grid_x -= player.speed
-        player.grid_y -= player.speed
+        dx -= player.speed
+        dy -= player.speed
         moving = True
         new_dir = 3
+
+    if moving:
+        player.move(dx, dy, tmx_data)
 
     player.update(dt, is_moving=moving, direction=new_dir)
 
