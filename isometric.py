@@ -6,7 +6,7 @@ from pytmx.util_pygame import load_pygame
 pygame.init()
 SCREEN_WIDTH, SCREEN_HEIGHT = 800, 600
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Isometric Player - Custom Scale & Speed")
+pygame.display.set_caption("Isometric Player - Layer Fixed")
 clock = pygame.time.Clock()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -35,7 +35,7 @@ def is_wall(grid_x, grid_y, tmx_data):
             if gid != 0:
                 if layer.name.lower() in ["walls", "wand", "wände"]:
                     return True
-                
+
                 props = tmx_data.get_tile_properties_by_gid(gid)
                 if props and props.get("collidable") is True:
                     return True
@@ -47,16 +47,12 @@ class Player:
     def __init__(self, start_x, start_y, use_hair=True, scale_factor=1.15):
         self.grid_x = float(start_x)
         self.grid_y = float(start_y)
-        
-        # Angepasste Geschwindigkeit
-        self.speed = 0.04
 
+        self.speed = 0.04
         self.radius = 0.25
 
         self.frame_width = 32
         self.frame_height = 32
-        
-        # Angepasster Skalierungsfaktor
         self.scale_factor = scale_factor
 
         sheet_path = os.path.join(
@@ -114,11 +110,19 @@ class Player:
 
     def move(self, dx, dy, tmx_data):
         new_x = self.grid_x + dx
-        if not is_wall(new_x + (self.radius if dx > 0 else -self.radius), self.grid_y, tmx_data):
+        if not is_wall(
+            new_x + (self.radius if dx > 0 else -self.radius),
+            self.grid_y,
+            tmx_data,
+        ):
             self.grid_x = new_x
 
         new_y = self.grid_y + dy
-        if not is_wall(self.grid_x, new_y + (self.radius if dy > 0 else -self.radius), tmx_data):
+        if not is_wall(
+            self.grid_x,
+            new_y + (self.radius if dy > 0 else -self.radius),
+            tmx_data,
+        ):
             self.grid_y = new_y
 
     def update(self, dt, is_moving, direction):
@@ -162,9 +166,14 @@ def grid_to_isometric(x, y, tile_width, tile_height):
     return screen_x, screen_y
 
 
-def draw_isometric_map(surface, tmx_data):
+def draw_scene_sorted(surface, tmx_data, player):
+    # SCHRITT 1: Zeichne alle flachen Boden-Ebenen in Tiled-Reihenfolge
     for layer in tmx_data.visible_layers:
         if hasattr(layer, "data"):
+            # Wand-Ebenen für Schritt 2 überspringen
+            if layer.name.lower() in ["walls", "wand", "wände"]:
+                continue
+
             for x, y, gid in layer:
                 tile = tmx_data.get_tile_image_by_gid(gid)
                 if tile:
@@ -173,8 +182,40 @@ def draw_isometric_map(surface, tmx_data):
                     )
                     surface.blit(tile, (screen_x, screen_y))
 
+    # SCHRITT 2: Sammle nur vertikale Objekte (Wände & Spieler) zur Sortierung
+    sortable_objects = []
 
-# Hier mit scale_factor=1.15
+    # 2a. Wand-Tiles sammeln
+    for layer in tmx_data.visible_layers:
+        if hasattr(layer, "data") and layer.name.lower() in ["walls", "wand", "wände"]:
+            for x, y, gid in layer:
+                tile = tmx_data.get_tile_image_by_gid(gid)
+                if tile:
+                    screen_x, screen_y = grid_to_isometric(
+                        x, y, tmx_data.tilewidth, tmx_data.tileheight
+                    )
+                    # Tiefe nach Raster-Koordinate (x + y)
+                    depth = x + y
+                    sortable_objects.append(("tile", depth, tile, screen_x, screen_y))
+
+    # 2b. Spieler hinzufügen
+    player_screen_x, player_screen_y = grid_to_isometric(
+        player.grid_x, player.grid_y, tmx_data.tilewidth, tmx_data.tileheight
+    )
+    player_depth = player.grid_x + player.grid_y
+    sortable_objects.append(("player", player_depth, player, player_screen_x, player_screen_y))
+
+    # 2c. Sortieren nach Tiefe
+    sortable_objects.sort(key=lambda item: item[1])
+
+    # 2d. Wände und Spieler über dem Boden rendern
+    for obj_type, depth, obj, sx, sy in sortable_objects:
+        if obj_type == "tile":
+            surface.blit(obj, (sx, sy))
+        elif obj_type == "player":
+            obj.draw(surface, sx, sy, tmx_data.tilewidth)
+
+
 player = Player(start_x=5, start_y=5, use_hair=True, scale_factor=1.15)
 
 running = True
@@ -218,12 +259,7 @@ while running:
 
     screen.fill((30, 30, 30))
 
-    draw_isometric_map(screen, tmx_data)
-
-    player_screen_x, player_screen_y = grid_to_isometric(
-        player.grid_x, player.grid_y, tmx_data.tilewidth, tmx_data.tileheight
-    )
-    player.draw(screen, player_screen_x, player_screen_y, tmx_data.tilewidth)
+    draw_scene_sorted(screen, tmx_data, player)
 
     pygame.display.flip()
 
