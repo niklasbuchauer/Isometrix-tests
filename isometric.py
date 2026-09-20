@@ -4,9 +4,9 @@ import pygame
 from pytmx.util_pygame import load_pygame
 
 pygame.init()
-SCREEN_WIDTH, SCREEN_HEIGHT = 800, 600
+SCREEN_WIDTH, SCREEN_HEIGHT = 1000, 800
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Isometric Player - Exakte Raster-Korrektur")
+pygame.display.set_caption("Isometric Player - Idle & Direction Fix")
 clock = pygame.time.Clock()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -25,7 +25,6 @@ class Player:
         self.grid_y = float(start_y)
         self.speed = 0.05
 
-        # Berechnete Pixel-Maße aus 384x256
         self.frame_width = 32
         self.frame_height = 32
 
@@ -33,9 +32,7 @@ class Player:
             BASE_DIR, "Chibi-character-template_skin0_by_AxulArt.png"
         )
 
-        # 0 = Mit Haaren, 4 = Ohne Haare
         self.row_offset = 0 if use_hair else 4
-
         self.direction = 0
 
         self.idle_anims, self.walk_anims = self.load_all_animations(sheet_path)
@@ -56,18 +53,16 @@ class Player:
 
         for dir_index in range(4):
             actual_row = self.row_offset + dir_index
-            dir_idle_frames = []
             dir_walk_frames = []
 
-            # Idle-Frames (Spalten 0 bis 2)
-            for col in range(0, 3):
-                frame = self.get_scaled_frame(sheet, col, actual_row)
-                dir_idle_frames.append(frame)
-
-            # Walk-Frames (Spalten 3 bis 8)
+            # 1. Lade die Geh-Animation (Spalten 3 bis 8)
             for col in range(3, 9):
                 frame = self.get_scaled_frame(sheet, col, actual_row)
                 dir_walk_frames.append(frame)
+
+            # 2. Idle-Sprite: Verwende den 5. Sprite im Sheet (Spalte 5, d.h. Index 4)
+            standing_frame = self.get_scaled_frame(sheet, 4, actual_row)
+            dir_idle_frames = [standing_frame]
 
             idle_anims[dir_index] = dir_idle_frames
             walk_anims[dir_index] = dir_walk_frames
@@ -82,7 +77,6 @@ class Player:
             self.frame_height,
         )
         sub_surface = sheet.subsurface(rect)
-        # 1.5x Skalierung für passende Größe auf den Kacheln
         return pygame.transform.scale(
             sub_surface,
             (int(self.frame_width * 1.5), int(self.frame_height * 1.5)),
@@ -155,11 +149,11 @@ while running:
     moving = False
     new_dir = None
 
-    # Richtungszuordnungen:
-    # 0 = Süden (Runter)
-    # 1 = Westen (Links)
-    # 2 = Osten (Rechts)
-    # 3 = Norden (Hoch)
+    # Tasten- und Richtungs-Mapping:
+    # 0 = Runter (Sünchen)
+    # 1 = Rechts (D) - Tauscht mit A für korrekte Ausrichtung
+    # 2 = Links (A)
+    # 3 = Hoch (Norden)
     if keys[pygame.K_s] or keys[pygame.K_DOWN]:
         player.grid_x += player.speed
         player.grid_y += player.speed
@@ -169,12 +163,12 @@ while running:
         player.grid_x -= player.speed
         player.grid_y += player.speed
         moving = True
-        new_dir = 1
+        new_dir = 2  # Nutzt jetzt Zeile 2 für Links
     elif keys[pygame.K_d] or keys[pygame.K_RIGHT]:
         player.grid_x += player.speed
         player.grid_y -= player.speed
         moving = True
-        new_dir = 2
+        new_dir = 1  # Nutzt jetzt Zeile 1 für Rechts
     elif keys[pygame.K_w] or keys[pygame.K_UP]:
         player.grid_x -= player.speed
         player.grid_y -= player.speed
